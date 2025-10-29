@@ -2,14 +2,14 @@ name: Deploy Blue/Green to EC2
 
 on:
   push:
-    branches: [main]
+    branches: [master]
   pull_request:
-    branches: [main]
+    branches: [master]
   workflow_dispatch:
 
 env:
-  BLUE_IMAGE: ghcr.io/hngdevops/app-blue:latest
-  GREEN_IMAGE: ghcr.io/hngdevops/app-green:latest
+  BLUE_IMAGE: ${{ secrets.BLUE_IMAGE }}
+  GREEN_IMAGE: ${{ secrets.GREEN_IMAGE }}
 
 jobs:
   test-local:

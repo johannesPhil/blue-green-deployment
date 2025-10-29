@@ -1,5 +1,5 @@
 # Environment variables (keep .env.example, ignore actual .env)
-.env.local
+.env
 *.bak
 
 # Docker
