@@ -22,8 +22,8 @@ jobs:
       - name: Create .env file
         run: |
           cat > .env << EOF
-          BLUE_IMAGE=${{ env.BLUE_IMAGE }}
-          GREEN_IMAGE=${{ env.GREEN_IMAGE }}
+          BLUE_IMAGE=${{ secrets.BLUE_IMAGE }}
+          GREEN_IMAGE=${{ secrets.GREEN_IMAGE }}
           ACTIVE_POOL=blue
           RELEASE_ID_BLUE=blue-${{ github.sha }}
           RELEASE_ID_GREEN=green-${{ github.sha }}
