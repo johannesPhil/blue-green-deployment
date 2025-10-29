@@ -38,23 +38,23 @@ jobs:
 
       - name: Start services
         run: |
-          docker-compose up -d
+          docker compose up -d
           echo "⏳ Waiting for services to be ready..."
           sleep 15
 
       - name: Check service health
         run: |
           echo "📊 Service Status:"
-          docker-compose ps
+          docker compose ps
           echo ""
           echo "📋 Nginx Logs:"
-          docker-compose logs nginx | tail -20
+          docker compose logs nginx | tail -20
           echo ""
           echo "🔵 Blue Logs:"
-          docker-compose logs app_blue | tail -10
+          docker compose logs app_blue | tail -10
           echo ""
           echo "🟢 Green Logs:"
-          docker-compose logs app_green | tail -10
+          docker compose logs app_green | tail -10
 
       - name: Run failover test
         run: ./scripts/test-failover.sh
@@ -62,8 +62,8 @@ jobs:
       - name: Cleanup
         if: always()
         run: |
-          docker-compose logs
-          docker-compose down -v
+          docker compose logs
+          docker compose down -v
 
   deploy-ec2:
     needs: test-local
@@ -91,7 +91,7 @@ jobs:
         run: |
           ssh ${EC2_USER}@${EC2_HOST} << 'ENDSSH'
             set -e
-            cd ~/bluegreen-nginx
+            cd ~/blue-green-deployment
             
             echo "📥 Pulling latest code..."
             git pull origin master
@@ -101,16 +101,16 @@ jobs:
             sed -i "s/RELEASE_ID_GREEN=.*/RELEASE_ID_GREEN=green-${{ github.sha }}/" .env
             
             echo "🐳 Pulling latest images..."
-            docker-compose pull
+            docker compose pull
             
             echo "🚀 Restarting services..."
-            docker-compose up -d --force-recreate
+            docker compose up -d --force-recreate
             
             echo "⏳ Waiting for health checks..."
             sleep 15
             
             echo "✅ Deployment complete!"
-            docker-compose ps
+            docker compose ps
           ENDSSH
 
       - name: Verify deployment
@@ -145,6 +145,6 @@ jobs:
           echo "🧪 Running failover test on EC2..."
 
           ssh ${EC2_USER}@${EC2_HOST} << 'ENDSSH'
-            cd ~/bluegreen-nginx
+            cd ~/blue-green-deployment
             ./scripts/test-failover.sh
           ENDSSH
