@@ -1,0 +1,25 @@
+# Environment variables (keep .env.example, ignore actual .env)
+.env.local
+*.bak
+
+# Docker
+docker-compose.override.yml
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# SSH Keys (just in case)
+*.pem
+*.key
+id_rsa*

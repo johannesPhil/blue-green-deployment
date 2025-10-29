@@ -1,0 +1,150 @@
+name: Deploy Blue/Green to EC2
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  BLUE_IMAGE: ghcr.io/hngdevops/app-blue:latest
+  GREEN_IMAGE: ghcr.io/hngdevops/app-green:latest
+
+jobs:
+  test-local:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create .env file
+        run: |
+          cat > .env << EOF
+          BLUE_IMAGE=${{ env.BLUE_IMAGE }}
+          GREEN_IMAGE=${{ env.GREEN_IMAGE }}
+          ACTIVE_POOL=blue
+          RELEASE_ID_BLUE=blue-${{ github.sha }}
+          RELEASE_ID_GREEN=green-${{ github.sha }}
+          APP_PORT=3000
+          NGINX_PORT=8080
+          BLUE_PORT=8081
+          GREEN_PORT=8082
+          EOF
+
+      - name: Make scripts executable
+        run: chmod +x nginx/entrypoint.sh scripts/test-failover.sh
+
+      - name: Start services
+        run: |
+          docker-compose up -d
+          echo "⏳ Waiting for services to be ready..."
+          sleep 15
+
+      - name: Check service health
+        run: |
+          echo "📊 Service Status:"
+          docker-compose ps
+          echo ""
+          echo "📋 Nginx Logs:"
+          docker-compose logs nginx | tail -20
+          echo ""
+          echo "🔵 Blue Logs:"
+          docker-compose logs app_blue | tail -10
+          echo ""
+          echo "🟢 Green Logs:"
+          docker-compose logs app_green | tail -10
+
+      - name: Run failover test
+        run: ./scripts/test-failover.sh
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker-compose logs
+          docker-compose down -v
+
+  deploy-ec2:
+    needs: test-local
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure SSH
+        env:
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$EC2_SSH_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H $EC2_HOST >> ~/.ssh/known_hosts
+
+      - name: Deploy to EC2
+        env:
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+        run: |
+          ssh ${EC2_USER}@${EC2_HOST} << 'ENDSSH'
+            set -e
+            cd ~/bluegreen-nginx
+            
+            echo "📥 Pulling latest code..."
+            git pull origin main
+            
+            echo "🔄 Updating environment..."
+            sed -i "s/RELEASE_ID_BLUE=.*/RELEASE_ID_BLUE=blue-${{ github.sha }}/" .env
+            sed -i "s/RELEASE_ID_GREEN=.*/RELEASE_ID_GREEN=green-${{ github.sha }}/" .env
+            
+            echo "🐳 Pulling latest images..."
+            docker-compose pull
+            
+            echo "🚀 Restarting services..."
+            docker-compose up -d --force-recreate
+            
+            echo "⏳ Waiting for health checks..."
+            sleep 15
+            
+            echo "✅ Deployment complete!"
+            docker-compose ps
+          ENDSSH
+
+      - name: Verify deployment
+        env:
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+        run: |
+          echo "🔍 Verifying deployment..."
+
+          response=$(ssh ${EC2_USER}@${EC2_HOST} "curl -sf http://localhost:8080/version")
+
+          if [ -z "$response" ]; then
+            echo "❌ Deployment verification failed - no response"
+            exit 1
+          fi
+
+          pool=$(echo "$response" | jq -r '.headers["x-app-pool"] // .headers["X-App-Pool"]')
+          release=$(echo "$response" | jq -r '.headers["x-release-id"] // .headers["X-Release-Id"]')
+
+          echo "✅ Deployment verified!"
+          echo "   Pool: $pool"
+          echo "   Release: $release"
+          echo ""
+          echo "Full response:"
+          echo "$response" | jq .
+
+      - name: Run remote failover test
+        env:
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+        run: |
+          echo "🧪 Running failover test on EC2..."
+
+          ssh ${EC2_USER}@${EC2_HOST} << 'ENDSSH'
+            cd ~/bluegreen-nginx
+            ./scripts/test-failover.sh
+          ENDSSH
